@@ -1,0 +1,7 @@
+export const WORKER_PRESENCE_TTL_SECONDS = 90;
+
+export const WORKER_SERVICE_STATUS = {
+  ONLINE: "ONLINE",
+  BUSY: "BUSY",
+  OFFLINE: "OFFLINE",
+} as const;

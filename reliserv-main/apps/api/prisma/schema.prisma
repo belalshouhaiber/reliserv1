@@ -1,0 +1,196 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  CUSTOMER
+  WORKER
+}
+
+enum JobStatus {
+  OPEN
+  LOCKED
+  IN_PROGRESS
+  COMPLETED
+  CANCELED
+}
+
+enum JobUrgency {
+  NORMAL
+  EMERGENCY
+}
+
+enum JobEventType {
+  CREATED
+  ACCEPTED
+  STARTED
+  COMPLETED
+  CANCELED
+}
+
+enum ReviewTarget {
+  CUSTOMER
+  WORKER
+}
+
+enum ReliabilityChangeReason {
+  JOB_COMPLETED
+  JOB_CANCELED
+  REVIEW_IMPACT
+  EMERGENCY_BONUS
+  MANUAL_RECALC
+}
+
+enum WorkerServiceStatus {
+  ONLINE
+  BUSY
+  OFFLINE
+}
+
+model User {
+  id               String   @id @default(cuid())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  role             UserRole @default(CUSTOMER)
+
+  name             String
+  email            String   @unique
+  phone            String?
+  passwordHash     String
+
+  reliabilityScore Int      @default(90) // 0-100
+
+  // Relations
+  workerProfile    WorkerProfile?
+  jobsCreated      Job[]    @relation("JobsCreated")
+  jobsAssigned     Job[]    @relation("JobsAssigned")
+  jobEvents        JobEvent[]
+  reviewsGiven     Review[] @relation("ReviewsGiven")
+  reviewsReceived  Review[] @relation("ReviewsReceived")
+  reliabilityHistory ReliabilityHistory[]
+
+  @@index([role])
+}
+
+model WorkerProfile {
+  id              String              @id @default(cuid())
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  userId          String              @unique
+  user            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  categories      String[]            @default([])
+  radiusMiles     Int                 @default(15)
+  baseRate        Int                 @default(75)
+
+  emergencyOptIn  Boolean             @default(false)
+  availableNow    Boolean             @default(true)
+  serviceStatus   WorkerServiceStatus @default(OFFLINE)
+  lastKnownLat    Float?
+  lastKnownLng    Float?
+  lastLocationAt  DateTime?
+  lastHeartbeatAt DateTime?
+
+  @@index([availableNow, emergencyOptIn])
+  @@index([serviceStatus, emergencyOptIn])
+  @@index([userId, serviceStatus])
+}
+
+model Job {
+  id               String     @id @default(cuid())
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  title            String
+  description      String
+  jobType          String
+  urgency          JobUrgency @default(NORMAL)
+  status           JobStatus  @default(OPEN)
+
+  // location (V1 simple)
+  lat              Float?
+  lng              Float?
+  locationText     String?
+
+  // pricing / scope (V1)
+  priceMin         Int?
+  priceMax         Int?
+  priceFinal       Int?
+  lockedScope      String?
+
+  // Relations
+  createdById      String
+  createdBy        User       @relation("JobsCreated", fields: [createdById], references: [id], onDelete: Cascade)
+
+  assignedWorkerId String?
+  assignedWorker   User?      @relation("JobsAssigned", fields: [assignedWorkerId], references: [id], onDelete: SetNull)
+
+  events           JobEvent[]
+  reviews          Review[]
+
+  @@index([status, urgency])
+  @@index([createdById])
+  @@index([assignedWorkerId])
+}
+
+model JobEvent {
+  id        String       @id @default(cuid())
+  createdAt DateTime     @default(now())
+
+  jobId     String
+  job       Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  actorId   String?
+  actor     User?        @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  type      JobEventType
+  note      String?
+
+  @@index([jobId, createdAt])
+}
+
+model Review {
+  id                String      @id @default(cuid())
+  createdAt         DateTime    @default(now())
+
+  jobId             String
+  job               Job         @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  fromUserId        String
+  fromUser          User        @relation("ReviewsGiven", fields: [fromUserId], references: [id], onDelete: Cascade)
+
+  toUserId          String
+  toUser            User        @relation("ReviewsReceived", fields: [toUserId], references: [id], onDelete: Cascade)
+
+  target            ReviewTarget
+  rating            Int         // 1-5
+  reliabilityImpact Int         // -20..+20 (simple V1)
+  notes             String?
+
+  @@index([jobId])
+  @@index([toUserId])
+  @@unique([jobId, fromUserId]) // one review per user per job
+}
+
+model ReliabilityHistory {
+  id        String                  @id @default(cuid())
+  createdAt DateTime                @default(now())
+
+  userId    String
+  user      User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  oldScore  Int
+  newScore  Int
+  delta     Int
+  reason    ReliabilityChangeReason
+  jobId     String?
+  note      String?
+
+  @@index([userId, createdAt])
+}
